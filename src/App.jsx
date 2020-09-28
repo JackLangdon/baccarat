@@ -7,14 +7,15 @@ class App extends React.Component {
     this.state = {
       error: null,
       isLoaded: false,
-      result: {},
       deck_id: '',
-      numDrawnCards: 0,
       playerTurn: true,
-      pulledCards: [],
       playerHand: [],
       houseHand: [],
       firstDeal: true,
+      playerScore: 0,
+      houseScore: 0,
+      houseHidden: true,
+      hidden: [],
     };
   }
 
@@ -28,7 +29,6 @@ class App extends React.Component {
 
     this.setState({
       isLoaded: true,
-      result: json,
       deck_id: json.deck_id,
     });
 
@@ -36,22 +36,28 @@ class App extends React.Component {
   }
 
   async reshuffle() {
+    this.setState({
+      isLoaded: false,
+    });
+    // Shuffle deck with API
     const response = await fetch(
       `https://deckofcardsapi.com/api/deck/${this.state.deck_id}/shuffle/`
     );
     const json = await response.json();
 
-    this.state = {
+    // Reset the state
+    this.setState({
       error: null,
-      isLoaded: false,
-      result: {},
-      numDrawnCards: 0,
+      isLoaded: true,
       playerTurn: true,
-      pulledCards: [],
       playerHand: [],
       houseHand: [],
       firstDeal: true,
-    };
+      playerScore: 0,
+      houseScore: 0,
+      houseHidden: true,
+      hidden: [],
+    });
   }
 
   calcCardValue(cardCode) {
@@ -59,73 +65,142 @@ class App extends React.Component {
     let value = cardCode.slice(0, -1);
 
     switch (value) {
-      case 0:
-        // code for 10 is '0'
-        return 10;
+      case '0':
       case 'J':
-        return 11;
       case 'Q':
-        return 12;
       case 'K':
-        return '13';
+        return 10;
       case 'A':
-        return '14';
+        return 11;
       default:
         // return the given card value
-        return value;
+        return parseInt(value, 10);
     }
   }
 
   async drawCard() {
-    let numDrawnCards = this.state.numDrawnCards;
+    // Pull a card from the deck
     const response = await fetch(
       `https://deckofcardsapi.com/api/deck/${this.state.deck_id}/draw/?count=1`
     );
     const json = await response.json();
 
-    numDrawnCards++;
-
-    this.setState({ numDrawnCards });
-
     console.log(json.cards[0].code);
-    console.log(this.state.numDrawnCards);
+    // Return card information
     return json;
   }
 
-  async deal() {
-    let pulledCards = this.state.pulledCards.map((card) => {
-      return card;
+  async firstDeal() {
+    // Deal cards to player and house
+    console.log('Card to player:');
+    await this.dealPlayer();
+    console.log('Card to house:');
+    await this.dealHouse();
+    console.log('Card to player:');
+    await this.dealPlayer();
+    console.log('Hidden card to house:');
+    // await this.dealHouse();
+    await this.dealHouseHidden();
+
+    // Update state
+    this.setState({
+      firstDeal: false,
     });
+  }
+
+  async dealPlayer() {
     let playerHand = this.state.playerHand.map((card) => {
       return card;
     });
+    let playerScore = this.state.playerScore;
+
+    let json = await this.drawCard();
+
+    playerHand.push(json.cards[0]);
+
+    let value = this.calcCardValue(json.cards[0].code);
+
+    playerScore += value;
+
+    this.setState({
+      playerHand,
+      playerScore,
+    });
+  }
+
+  async dealHouse() {
     let houseHand = this.state.houseHand.map((card) => {
       return card;
     });
-    let playerTurn = this.state.playerTurn;
+    let houseScore = this.state.houseScore;
 
-    for (let i = 0; i < 4; i++) {
-      // Draw a new card
-      let json = await this.drawCard();
-      // Add new card to pulled cards array
-      pulledCards.push(json.cards[0]);
-      // Add new card to appropriate hand
-    }
+    let json = await this.drawCard();
 
-    pulledCards.map((card, index) => {
-      if (index % 2 === 0) {
-        playerHand.push(card);
-      } else {
-        houseHand.push(card);
-      }
+    houseHand.push(json.cards[0]);
+
+    let value = this.calcCardValue(json.cards[0].code);
+
+    houseScore += value;
+
+    this.setState({
+      houseHand,
+      houseScore,
+    });
+  }
+
+  async dealHouseHidden() {
+    let hidden = this.state.hidden.map((card) => {
+      return card;
+    });
+
+    let json = await this.drawCard();
+
+    hidden.push(json.cards[0]);
+
+    let houseHand = this.state.houseHand.map((card) => {
+      return card;
+    });
+
+    houseHand.push({
+      image: `${process.env.PUBLIC_URL}/img/card-back.jpg`,
+      value: 'UNKNOWN',
+      suit: 'UNKNOWN',
+      code: '??',
     });
 
     this.setState({
-      pulledCards,
-      playerHand,
+      hidden,
       houseHand,
-      playerTurn: !playerTurn,
-      firstDeal: false,
+    });
+  }
+
+  revealHouse() {
+    // Get hidden card array
+    let hidden = this.state.hidden.map((card) => {
+      return card;
+    });
+
+    // Caclulate hidden card score
+    let houseScore = this.state.houseScore;
+    let value = this.calcCardValue(hidden[0].code);
+
+    // Get house hand array
+    let houseHand = this.state.houseHand.map((card) => {
+      return card;
+    });
+
+    // Remove temporary card from houseHand and add hidden card
+    houseHand.pop();
+    houseHand.push(hidden.shift());
+
+    // Update house score
+    houseScore += value;
+
+    this.setState({
+      houseHand,
+      hidden,
+      houseScore,
+      houseHidden: false,
     });
   }
 
@@ -140,16 +215,26 @@ class App extends React.Component {
         <div className="contianer">
           <div>
             {this.state.firstDeal ? (
-              <button onClick={() => this.deal()}>Deal</button>
+              <button onClick={() => this.firstDeal()}>Deal</button>
             ) : (
               <div>
-                <button onClick={() => this.playerCard()}>+1 Player</button>
-                <button onClick={() => this.hosueCard()}>+1 House</button>
+                <button onClick={() => this.dealPlayer()}>+1 Player</button>
+
+                {this.state.houseHidden ? (
+                  <button onClick={() => this.revealHouse()}>
+                    Reveal House
+                  </button>
+                ) : (
+                  <button onClick={() => this.dealHouse()}>+1 House</button>
+                )}
+
+                <button onClick={() => this.reshuffle()}>reshuffle</button>
               </div>
             )}
           </div>
           <div className="playerHand">
             <h2>Player</h2>
+            <h3>Score: {this.state.playerScore % 10}</h3>
             <div className="card-display">
               {this.state.playerHand.map((card) => {
                 return (
@@ -165,6 +250,7 @@ class App extends React.Component {
           </div>
           <div className="houseHand">
             <h2>House</h2>
+            <h3>Score: {this.state.houseScore % 10}</h3>
             <div className="card-display">
               {this.state.houseHand.map((card) => {
                 return (
